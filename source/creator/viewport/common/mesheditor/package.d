@@ -40,8 +40,11 @@ private:
     bool mirrorVert = false;
     VertexToolMode toolMode = VertexToolMode.Points;
 
+    bool showMeshgroupNodeChild = true;
+
 public:
     bool deformOnly;
+    bool hasPopupMeshgroupNoDrawables = false;
 
     this(bool deformOnly) {
         this.deformOnly = deformOnly;
@@ -220,7 +223,7 @@ public:
             void clearValue(ref Deformation val) {
                 // Reset deformation to identity, with the right vertex count
                 if (Drawable d = cast(Drawable)drawing) {
-                    val.vertexOffsets.length = d.vertices.length;
+                    val.vertexOffsets.resize(d.vertices.length);
                     foreach(i; 0..d.vertices.length) {
                         if (editor.selected.countUntil(i) >= 0)
                             val.vertexOffsets[i] = vec2(0);
@@ -326,5 +329,12 @@ public:
         return true;
     }
 
+    void setShowMeshgroupNodeChild(bool show) {
+        this.showMeshgroupNodeChild = show;
+    }
+
+    bool getShowMeshgroupNodeChild() {
+        return showMeshgroupNodeChild;
+    }
 }
 

@@ -87,7 +87,7 @@ void incInitAtlassing() {
     glGenVertexArrays(1, &writeVAO);
     glGenBuffers(1, &writeVBO);
 
-    atlasShader = new Shader(import("shaders/atlassing.vert"), import("shaders/atlassing.frag"));
+    atlasShader = new Shader("atlassing", import("shaders/atlassing.vert"), import("shaders/atlassing.frag"));
     atlasMVP = atlasShader.getUniformLocation("mvp");
     atlasRenderOpacity = atlasShader.getUniformLocation("opacity");
 }
@@ -119,6 +119,7 @@ public:
 
     /**
         Mappings from part UUID to an area on the atlas
+        Attempting to chanfge this to texture UUID instead
     */
     rect[uint] mappings;
 
@@ -144,6 +145,7 @@ public:
         UVs should be stretched to cover this area.
     */
     bool pack(Part p, float fscale=1) {
+        if ((p.textures[0].getRuntimeUUID() in mappings) is null){
         auto mesh = p.getMesh();
         vec2 textureStartOffset = vec2(0, 0);
         vec2 textureEndOffset   = vec2(0, 0);
@@ -206,10 +208,11 @@ public:
                 // where is the calculated texture boundary #2, specifying the area which texture is copied. (always between 0..1 in UV position)
                 rect where = rect(atlasArea.x+textureStartOffset.x+padding, atlasArea.y+textureStartOffset.y+padding, 
                                   atlasArea.z-(padding*2)-textureStartOffset.x - textureEndOffset.x, atlasArea.w-(padding*2)-textureStartOffset.y - textureEndOffset.y);
-                mappings[p.uuid] = rect(atlasArea.x+padding, atlasArea.y+padding, atlasArea.z-padding*2, atlasArea.w-padding*2);
+                mappings[texture.getRuntimeUUID()] = rect(atlasArea.x+padding, atlasArea.y+padding, atlasArea.z-padding*2, atlasArea.w-padding*2);
                 renderToTexture(texture, where, uvRect);
                 inBlendModeBarrier(BlendMode.Normal);
             }
+        }
         }
         return true;
     }

@@ -69,3 +69,8 @@ enum INC_INFO_DISCORD_URI = "https://discord.com/invite/abnxwN6r9v";
     These are hardcoded, if you're forking the project set this to false.
 */
 enum INC_INFO_SHOW_DONATE_LINKS = true;
+
+
+// Runtime variable.
+version(InDemo) enum INC_RT_SHOW_DONATION_LINKS = INC_INFO_SHOW_DONATE_LINKS;
+else enum INC_RT_SHOW_DONATION_LINKS = false;

@@ -13,10 +13,11 @@ import creator.core.input;
 import creator.utils.link;
 import creator.config;
 import creator.io.autosave;
+import creator.io.save;
 import creator;
 import inochi2d;
 import inochi2d.core.dbg;
-import tinyfiledialogs;
+
 import i18n;
 import creator.ext;
 
@@ -24,54 +25,12 @@ import std.string;
 import std.stdio;
 import std.path;
 
+
 private {
     bool dbgShowStyleEditor;
     bool dbgShowDebugger;
     bool dbgShowMetrics;
     bool dbgShowStackTool;
-
-    void fileNew() {
-        incNewProject();
-    }
-
-    void fileOpen() {
-        const TFD_Filter[] filters = [
-            { ["*.inx"], "Inochi Creator Project (*.inx)" }
-        ];
-
-        string file = incShowOpenDialog(filters, _("Open..."));
-        if (file) incOpenProject(file);
-    }
-
-    void fileSave() {
-        incPopWelcomeWindow();
-
-        // If a projeect path is set then the user has opened or saved
-        // an existing file, we should just override that
-        if (incProjectPath.length > 0) {
-            // TODO: do backups on every save?
-
-            incSaveProject(incProjectPath);
-        } else {
-            const TFD_Filter[] filters = [
-                { ["*.inx"], "Inochi Creator Project (*.inx)" }
-            ];
-
-            string file = incShowSaveDialog(filters, "", _("Save..."));
-            if (file) incSaveProject(file);
-        }
-    }
-
-    void fileSaveAs() {
-        incPopWelcomeWindow();
-        const TFD_Filter[] filters = [
-            { ["*.inx"], "Inochi Creator Project (*.inx)" }
-        ];
-
-        string fname = incProjectPath().length > 0 ? incProjectPath : "";
-        string file = incShowSaveDialog(filters, fname, _("Save As..."));
-        if (file) incSaveProject(file);
-    }
 }
 
 void incMainMenu() {
@@ -87,10 +46,10 @@ void incMainMenu() {
     igPushStyleColor(ImGuiCol.BorderShadow, ImVec4(0, 0, 0, 0));
     igPushStyleColor(ImGuiCol.Separator, ImVec4(0, 0, 0, 0));
 
-        if (incShortcut("Ctrl+N")) fileNew();
-        if (incShortcut("Ctrl+O")) fileOpen();
-        if (incShortcut("Ctrl+S")) fileSave();
-        if (incShortcut("Ctrl+Shift+S")) fileSaveAs();
+        if (incShortcut("Ctrl+N")) incNewProjectAsk();
+        if (incShortcut("Ctrl+O")) incFileOpen();
+        if (incShortcut("Ctrl+S")) incFileSave();
+        if (incShortcut("Ctrl+Shift+S")) incFileSaveAs();
 
         if (!incSettingsGet("hasDoneQuickSetup", false)) igBeginDisabled();
 
@@ -125,11 +84,11 @@ void incMainMenu() {
             igPushStyleColor(ImGuiCol.Separator, seperator);
                 if (igBeginMenu(__("File"), true)) {
                     if(igMenuItem(__("New"), "Ctrl+N", false, true)) {
-                        fileNew();
+                        incNewProjectAsk();
                     }
 
                     if (igMenuItem(__("Open"), "Ctrl+O", false, true)) {
-                        fileOpen();
+                        incFileOpen();
                     }
 
                     string[] prevProjects = incGetPrevProjects();
@@ -160,11 +119,11 @@ void incMainMenu() {
                     }
                     
                     if(igMenuItem(__("Save"), "Ctrl+S", false, true)) {
-                        fileSave();
+                        incFileSave();
                     }
                     
                     if(igMenuItem(__("Save As..."), "Ctrl+Shift+S", false, true)) {
-                        fileSaveAs();
+                        incFileSaveAs();
                     }
 
                     if (igBeginMenu(__("Import"), true)) {
@@ -320,16 +279,11 @@ void incMainMenu() {
                     }
 
                     // Close Project option
-                    if (igMenuItem(__("Close Project"))) {
-
-                        // TODO: Check if changes were done to project and warn before
-                        // creating new project
-                        incNewProject();
-                        incPushWindow(new WelcomeWindow());
-                    }
+                    if (igMenuItem(__("Close Project")))
+                        incCloseProjectAsk();
 
                     // Quit option
-                    if (igMenuItem(__("Quit"), "Alt+F4", false, true)) incExit();
+                    if (igMenuItem(__("Quit"), "Alt+F4", false, true)) incExitSaveAsk();
                     igEndMenu();
                 }
                 
@@ -469,9 +423,19 @@ void incMainMenu() {
 
                         if (string path = incShowImportDialog(filters, _("Import..."))) {
                             Puppet p = inLoadPuppet!ExPuppet(path);
+                            bool imported = false;
 
                             if ("com.inochi2d.inochi-session.bindings" in p.extData) {
                                 incActivePuppet().extData["com.inochi2d.inochi-session.bindings"] = p.extData["com.inochi2d.inochi-session.bindings"].dup;
+                                imported = true;
+                            }
+
+                            if ("com.inochi2d.inochi-session.animations" in p.extData) {
+                                incActivePuppet().extData["com.inochi2d.inochi-session.animations"] = p.extData["com.inochi2d.inochi-session.animations"].dup;
+                                imported = true;
+                            }
+                            
+                            if(imported){
                                 incSetStatus(_("Successfully overwrote Inochi Session tracking data..."));
                             } else {
                                 incDialog(__("Error"), _("There was no Inochi Session data to import!"));
@@ -583,16 +547,24 @@ void incMainMenu() {
             igPopStyleColor();
             igPopStyleColor();
 
-            // We need to pre-calculate the size of the right adjusted section
-            // This code is very ugly because imgui doesn't really exactly understand this
-            // stuff natively.
-            ImVec2 secondSectionLength = ImVec2(0, 0);
-            secondSectionLength.x += incMeasureString(_("Donate")).x+16; // Add 16 px padding
-            if (incShowStatsForNerds) { // Extra padding I guess
-                secondSectionLength.x += igGetStyle().ItemSpacing.x;
-                secondSectionLength.x += incMeasureString("1000ms").x;
+            static if (INC_RT_SHOW_DONATION_LINKS) {
+                // We need to pre-calculate the size of the right adjusted section
+                // This code is very ugly because imgui doesn't really exactly understand this
+                // stuff natively.
+                float secondSectionLength = 0f;
+                secondSectionLength += incMeasureString(_("Donate")).x+16; // Add 16 px padding
+                if (incShowStatsForNerds) { // Extra padding I guess
+                    secondSectionLength += igGetStyle().ItemSpacing.x;
+                    secondSectionLength += incMeasureString("1000ms").x;
+                }
+                incDummy(ImVec2(-secondSectionLength, 0));
+            } else {
+                if (incShowStatsForNerds) {
+                    float secondSectionLength = igGetStyle().ItemSpacing.x;
+                    secondSectionLength += incMeasureString("1000ms").x;
+                    incDummy(ImVec2(-secondSectionLength, 0));
+                }
             }
-            incDummy(ImVec2(-secondSectionLength.x, 0));
 
             if (incShowStatsForNerds) {
                 string fpsText = "%.0fms".format(1000f/io.Framerate);
@@ -601,10 +573,11 @@ void incMainMenu() {
                 incText(fpsText);
             }
             
-            // Donate button
-            // NOTE: Is this too obstructive in the UI?
-            if(igMenuItem(__("Donate"))) {
-                incOpenLink("https://www.patreon.com/clipsey");
+            static if (INC_RT_SHOW_DONATION_LINKS) {
+                // Donate button
+                if(igMenuItem(__("Donate"))) {
+                    incOpenLink("https://www.patreon.com/clipsey");
+                }
             }
             incTooltip(_("Support development via Patreon"));
         }

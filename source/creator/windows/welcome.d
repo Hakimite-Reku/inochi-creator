@@ -11,11 +11,13 @@ import creator.windows;
 import creator.core;
 import creator.core.i18n;
 import std.string;
+import std.file : FileException;
 import creator.utils.link;
 import i18n;
 import inochi2d;
 import creator.ver;
 import creator.io;
+import creator.io.save;
 import creator;
 import creator.config;
 import creator.widgets.dialog;
@@ -224,24 +226,13 @@ protected:
                         incDummy(ImVec2(0, 2));
                         igIndent();
                             if (incTextLinkWithIcon("", _("New..."))) {
-                                incNewProject();
+                                incNewProjectAsk();
                                 this.close();
                             }
 
                             if (incTextLinkWithIcon("", _("Open..."))) {
-                                const TFD_Filter[] filters = [
-                                    { ["*.inx"], "Inochi Creator Project (*.inx)" }
-                                ];
-
-                                string file = incShowOpenDialog(filters, _("Open..."));
-                                if (file) {
-                                    try {
-                                        incOpenProject!false(file);
-                                        this.close();
-                                    } catch(Exception ex) {
-                                        incDialog(__("Error"), ex.msg);
-                                    }
-                                }
+                                if (incFileOpen())
+                                    this.close();
                             }
 
 
@@ -277,12 +268,9 @@ protected:
 
                                     import std.path : baseName;
                                     if (incTextLinkWithIcon("", recent.baseName)) {
-                                        try {
-                                            incOpenProject!false(recent);
+                                        // FileException should handle in incOpenProject, so we don't write try/catch here
+                                        if (incOpenProject(recent))
                                             this.close();
-                                        } catch(Exception ex) {
-                                            incDialog(__("Error"), ex.msg);
-                                        }
                                     }
                                 }
                             } else {
@@ -318,13 +306,11 @@ protected:
                                 }
                             }
 
-                            static if (INC_INFO_SHOW_DONATE_LINKS) {
+                            static if (INC_RT_SHOW_DONATION_LINKS) {
                                 igNewLine();
                                 igNewLine();
-                                version(InDemo) {
-                                    if (incTextLinkWithIcon("", _("Buy a copy"))) {
-                                        incOpenLink(INC_INFO_BUY_URL);
-                                    }
+                                if (incTextLinkWithIcon("", _("Buy a copy"))) {
+                                    incOpenLink(INC_INFO_BUY_URL);
                                 }
 
                                 if (incTextLinkWithIcon("", _("Patreon"))) {

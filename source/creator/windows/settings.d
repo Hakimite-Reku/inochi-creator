@@ -6,9 +6,11 @@
 */
 module creator.windows.settings;
 import creator.windows;
+import creator.viewport;
 import creator.widgets;
 import creator.core;
 import creator.core.i18n;
+import creator.io;
 import creator.io.autosave;
 import std.string;
 import creator.utils.link;
@@ -21,7 +23,7 @@ enum SettingsPane : string {
     LookAndFeel = "Look and Feel",
     Viewport = "Viewport",
     Accessibility = "Accessbility",
-    Autosaves = "Autosaves"
+    FileHandling = "File Handling"
 }
 
 /**
@@ -88,8 +90,8 @@ protected:
                     settingsPane = SettingsPane.Accessibility;
                 }
 
-                if (igSelectable(__("Autosaves"), settingsPane == SettingsPane.Autosaves)) {
-                    settingsPane = SettingsPane.Autosaves;
+                if (igSelectable(__("File Handling"), settingsPane == SettingsPane.FileHandling)) {
+                    settingsPane = SettingsPane.FileHandling;
                 }
             igPopTextWrapPos();
         }
@@ -167,9 +169,15 @@ protected:
                                 changesRequiresRestart = true;
                             }
                             incTooltip(_("Use the OpenDyslexic font for Latin text characters."));
+
+                            bool paramAutoScroll = incSettingsGet!bool("EnableParamAutoScroll", true);
+                            if (igCheckbox(__("Scroll to armed parameter"), &paramAutoScroll)) {
+                                incSettingsSet("EnableParamAutoScroll", paramAutoScroll);
+                            }
+                            incTooltip(_("Enable automatic scrolling to the top of the parameters list."));
                         endSection();
                         break;
-                    case SettingsPane.Autosaves:
+                    case SettingsPane.FileHandling:
                         beginSection(__("Autosaves"));
                             bool autosaveEnabled = incGetAutosaveEnabled();
                             if (igCheckbox(__("Enable Autosaves"), &autosaveEnabled)) {
@@ -184,6 +192,66 @@ protected:
                             int saveFileLimit = incGetAutosaveFileLimit();
                             if (igInputInt(__("Maximum Autosaves"), &saveFileLimit, 1, 5, ImGuiInputTextFlags.EnterReturnsTrue)) {
                                 incSetAutosaveFileLimit(saveFileLimit);
+                            }
+                        endSection();
+
+                        beginSection(__("Import behaviour")); {
+                            string[string] configShowing = [
+                                "Ask": _("Always ask"),
+                                "Preserve": _("Preserve"),
+                                "NotPreserve": _("Don't preserve")
+                            ];
+
+                            string selected = configShowing.get(incGetKeepLayerFolder(), "Ask");
+                            string keepLayerFolder = incSettingsGet!string("KeepLayerFolder");
+
+                            if (igBeginCombo(__("Preserve structure"), selected.toStringz)) {
+                                foreach(key, displayName ; configShowing) {
+                                    if (igSelectable(displayName.toStringz, keepLayerFolder == key)) 
+                                        incSetKeepLayerFolder(key);
+                                }
+
+                                igEndCombo();
+                            }
+                        }
+                        endSection();
+
+                        beginSection(__("On close project")); {
+                            import creator.io.save;
+                            string[string] option = incGetSaveProjectOption();
+                            string selected = option.get(incGetSaveProjectOnClose(), "Ask");
+                            if (igBeginCombo(__("Save project"), selected.toStringz)) {
+                                foreach(key, displayName ; option) {
+                                    if (igSelectable(displayName.toStringz, selected == key))
+                                        incSetSaveProjectOnClose(key);
+                                }
+
+                                igEndCombo();
+                            }
+                            incTooltip(_("Should changes be saved automatically when closing a project?"));
+                        }
+                        endSection();
+                        break;
+                    case SettingsPane.Viewport:
+                        beginSection(__("Viewport"));
+                            const char*[string] configShowing = [
+                                "normal": __("Normal"),
+                                "legacy-zooming": __("Legacy Zooming")
+                            ];
+
+                            string selected = incGetCurrentViewportZoomMode();
+                            if(igBeginCombo(__("Zoom Mode"), configShowing[incGetCurrentViewportZoomMode()])) {
+                                foreach (options; incGetViewportZoomModes()) {
+                                    if (igSelectable(configShowing[options], selected == options)) {
+                                        incSetCurrentViewportZoomMode(options);
+                                    }
+                                }
+                                igEndCombo();
+                            }
+
+                            float zoomSpeed = cast(float)incGetViewportZoomSpeed();
+                            if (igDragFloat(__("Zoom Speed"), &zoomSpeed, 0.1, 1, 50, "%f")) {
+                                incSetViewportZoomSpeed(zoomSpeed);
                             }
                         endSection();
                         break;

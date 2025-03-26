@@ -65,6 +65,7 @@ public:
     bool invertSelection = false;
     ulong maybeSelectOne;
     ulong vtxAtMouse;
+
     vec2 selectOrigin;
     IncMesh previewMesh;
 
@@ -79,12 +80,37 @@ public:
     void toggleSelect(ulong vertIndex) {
         import std.algorithm.searching : countUntil;
         import std.algorithm.mutation : remove;
-        auto idx = selected.countUntil(vertIndex);
-        if (isSelected(vertIndex)) {
+
+        // NOTE: isSelected iterates the array again
+        // but countUntil will return -1 if not found
+        // That way we can easily just use this value
+        // once and avoid 2 array iterations.
+        ptrdiff_t idx = selected.countUntil(vertIndex);
+        if (idx >= 0) {
             selected = selected.remove(idx);
         } else {
             selected ~= vertIndex;
         }
+
+        updateMirrorSelected();
+    }
+
+    void select(ulong vertIndex) {
+        if (!isSelected(vertIndex)) {
+            selected ~= vertIndex;
+        }
+        
+        updateMirrorSelected();
+    }
+
+    void deselect(ulong vertIndex) {
+        import std.algorithm.searching : countUntil;
+        import std.algorithm.mutation : remove;
+        ptrdiff_t idx = selected.countUntil(vertIndex);
+        if (idx >= 0) {
+            selected = selected.remove(idx);
+        }
+        
         updateMirrorSelected();
     }
 
@@ -148,6 +174,14 @@ public:
         ulong vInd = getVertexFromPoint(mirror(axis, vtx.position));
         if (vInd == vtxIndex) return -1;
         return vInd;
+    }
+
+    MeshVertex* mirrorVertex(uint axis, MeshVertex* vtx) {
+        if (axis == 0) return vtx;
+        ulong vInd = getVertexFromPoint(mirror(axis, vtx.position));
+        MeshVertex* v = getVerticesByIndex([vInd])[0];
+        if (v is null || v == vtx) return null;
+        return getVerticesByIndex([vInd])[0];
     }
 
     bool isOnMirror(vec2 pos, float aoe) {

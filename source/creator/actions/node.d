@@ -332,6 +332,66 @@ void incAddChildWithHistory(Node n, Node to, string name=null) {
     incActivePuppet().rescanNodes();
 }
 
+Node recursiveDuplicate(Node n){
+    Node x;
+    if (cast(Part) n) {
+        Part c = cast(Part) n;
+        Part p = new Part(c.getMesh(),c.textures); 
+        p.textureIds = c.textureIds;
+        p.tint = c.tint;
+        p.screenTint = c.screenTint;
+        p.emissionStrength = c.emissionStrength;
+        p.blendingMode = c.blendingMode;
+        p.opacity = c.opacity;
+        p.maskAlphaThreshold = c.maskAlphaThreshold;
+        p.masks = c.masks;
+        x = p;
+    } else if (cast(Composite) n) {
+        //Do Composites hold any unique data?
+        Composite c = cast(Composite)n;
+        Composite p = new Composite(null);
+        p.tint = c.tint;
+        p.screenTint = c.screenTint;
+        p.blendingMode = c.blendingMode;
+        p.opacity = c.opacity;
+        p.threshold = c.threshold;
+        p.masks = c.masks;
+        x = p;    
+    } else if (cast(MeshGroup) n) {
+        //Do meshgroups hold into any unique data?
+        MeshGroup p = new MeshGroup(null);
+        x = p;
+    } else if (cast(SimplePhysics) n) {
+        SimplePhysics c = cast(SimplePhysics) n;
+        SimplePhysics p = new SimplePhysics(null);
+        p.param(c.param());
+        p.modelType_ = c.modelType_;
+        p.mapMode = c.mapMode;
+        p.localOnly = c.localOnly;
+        p.gravity = c.gravity;
+        p.length = c.length;
+        p.frequency = c.frequency;
+        p.angleDamping = c.angleDamping;
+        p.lengthDamping = c.lengthDamping;
+        p.outputScale = c.outputScale;
+        p.output = c.output;
+        x = p;
+    } else if (cast(Camera) n) {
+        //Lets not duplicate cameras for now
+        return null; 
+    } else x = new Node(inCreateUUID(),null);    
+    //Applies to all node types
+    x.name = n.name;
+    x.enabled = n.enabled;
+    x.globalTransform = n.globalTransform;
+    x.localTransform = n.localTransform;
+    x.zSort = n.zSort;
+    foreach (child; n.children()) {
+        x.addChild(recursiveDuplicate(child));
+    }
+    return x; 
+}
+
 GroupAction incDeleteMaskOfNode(Node n, GroupAction group = null) {
     auto removedDrawables = incActivePuppet().findNodesType!Drawable(n);
     auto parts = incActivePuppet().findNodesType!Part(incActivePuppet().root);

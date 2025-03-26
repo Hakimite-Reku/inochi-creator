@@ -5,6 +5,7 @@
     Authors: Luna Nielsen
 */
 module creator.panels.viewport;
+import creator.viewport.common.utils;
 import creator.viewport;
 import creator.widgets;
 import creator.widgets.viewport;
@@ -57,6 +58,8 @@ protected:
         auto camera = inGetCamera();
         auto drawList = igGetWindowDrawList();
         auto window = igGetCurrentWindow();
+
+        incModelEditorCommonHotKeys();
 
         // Draw viewport itself
         ImVec2 currSize;
@@ -114,7 +117,13 @@ protected:
             }
 
             auto style = igGetStyle();
-            incViewportDraw();
+            if (incShouldMirrorViewport) {
+                camera.scale.x *= -1;
+                incViewportDraw();
+                camera.scale.x *= -1;
+            } else {
+                incViewportDraw();
+            }
 
             int width, height;
             inGetViewport(width, height);
@@ -180,6 +189,9 @@ protected:
             }
             igPopStyleVar();
 
+            igPushStyleColor(ImGuiCol.Button, igGetStyleColorVec4(ImGuiCol.Button).setAlpha(0.5));
+            igPushStyleColor(ImGuiCol.ButtonHovered, igGetStyleColorVec4(ImGuiCol.ButtonHovered).setAlpha(0.5));
+            igPushStyleColor(ImGuiCol.FrameBgActive, igGetStyleColorVec4(ImGuiCol.ButtonActive).setAlpha(0.5));
             igPushStyleVar(ImGuiStyleVar.FrameBorderSize, 0);
                 incBeginViewportToolArea("ToolArea", ImGuiDir.Left);
                     igPushStyleVar_Vec2(ImGuiStyleVar.FramePadding, ImVec2(6, 6));
@@ -196,9 +208,12 @@ protected:
                 incBeginViewportToolArea("ConfirmArea", ImGuiDir.Left, ImGuiDir.Down, false);
                     incViewportDrawConfirmBar();
                 incEndViewportToolArea();
+    
                 if (incEditMode == EditMode.ModelEdit)
                     incViewportTransformHandle();
+                
             igPopStyleVar();
+            igPopStyleColor(3);
 
             lastSize = currSize;
             igEndChild();
@@ -235,7 +250,16 @@ protected:
 
                     // Allow dragging PSD in to main window
                     case ".psd":
-                        incImportPSD(file);
+                        incAskImportPSD(file);
+                        break mainLoop;
+
+                    // Allow dragging KRA in to main window
+                    case ".kra":
+                        incAskImportKRA(file);
+                        break mainLoop;
+
+                    case ".inx":
+                        incOpenProject(file);
                         break mainLoop;
 
                     default:
@@ -294,9 +318,9 @@ protected:
         igEndChild();
 
         // Handle smooth move
-        incViewportZoom = dampen(incViewportZoom, incViewportTargetZoom, deltaTime);
+        incViewportZoom = fdampen(incViewportZoom, incViewportTargetZoom, cast(float)deltaTime);
         camera.scale = vec2(incViewportZoom, incViewportZoom);
-        camera.position = vec2(dampen(camera.position, incViewportTargetPosition, deltaTime, 1.5));
+        camera.position = vec2(fdampen(camera.position, incViewportTargetPosition, cast(float)deltaTime));
     }
 
 public:
@@ -308,3 +332,59 @@ public:
 }
 
 mixin incPanel!ViewportPanel;
+
+
+import inmath.util;
+import std.traits;
+V fdampen(V, T)(V current, V target, T delta, T maxSpeed = 50) if(isVector!V && isFloatingPoint!T) {
+    V out_ = current;
+    V diff = current - target;
+
+    // Actual damping
+    if (diff.length > 0) {
+        V direction = (diff).normalized;
+
+        T speed = min(
+            max(0.001, 5.0*(target - current).length) * delta,
+            maxSpeed
+        );
+        V velocity = direction * speed;
+
+        // Set target out
+        out_ = ((target + diff) - velocity);
+
+        // Handle overshooting
+        diff = target - current;
+        if (diff.dot(out_ - target) > 0.0f) {
+            out_ = target;
+        }
+    }
+    return out_;
+}
+
+T fdampen(T)(T current, T target, T delta, T maxSpeed = 50) if(isFloatingPoint!T) {
+    T out_ = current;
+    T diff = current - target;
+    T diffLen = sqrt(diff^^2);
+    T direction = diff/diffLen;
+
+    // Actual damping
+    if (diffLen > 0) {
+
+        T speed = min(
+            max(0.001, 5.0*sqrt((target - current)^^2)) * delta,
+            maxSpeed
+        );
+        T velocity = direction * speed;
+
+        // Set target out
+        out_ = ((target + diff) - velocity);
+
+        // Handle overshooting
+        diff = target - current;
+        if (diff * (out_ - target) > 0.0f) {
+            out_ = target;
+        }
+    }
+    return out_;
+}

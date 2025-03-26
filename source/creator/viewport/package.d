@@ -25,6 +25,8 @@ import std.algorithm.sorting;
 import std.algorithm.searching;
 import std.stdio;
 
+bool incShouldMirrorViewport = false;
+
 /**
     Draws the viewport contents
 */
@@ -114,32 +116,62 @@ void incViewportPoll() {
     ImVec2 mpos;
     igGetItemRectMin(&pos);
     igGetMousePos(&mpos);
+    if (incShouldMirrorViewport)
+        mpos.x = incGetMirrorX(mpos.x);
+
     incInputSetViewportMouse(pos.x-mpos.x, pos.y-mpos.y);
+}
+
+/**
+    Gets the mouse position in the viewport
+    posX includes the viewport position
+*/
+float incGetMirrorX(float mposX) {
+    ImVec2 pos;
+    igGetItemRectMin(&pos);
+    return incGetMirrorX2(mposX - pos.x) + pos.x;
+}
+
+float incGetMirrorX2(float x) {
+    int uiWidth, uiHeight;
+    inGetViewport(uiWidth, uiHeight);
+    if (incShouldMirrorViewport)
+        return (-x + uiWidth) % uiWidth;
+
+    return x;
+}
+
+void incMirrorIO(ImGuiIO *result) {
+    *result = *igGetIO();
+
+    if (incShouldMirrorViewport)
+        result.MousePos.x = incGetMirrorX(result.MousePos.x);
 }
 
 /**
     Updates the viewport
 */
 void incViewportUpdate(bool localOnly = false) {
-    ImGuiIO* io = igGetIO();
+    ImGuiIO io;
+    incMirrorIO(&io);
     auto camera = inGetCamera();
 
     // First update viewport movement
-    if (!localOnly) incViewportMovement(io, camera);
+    if (!localOnly) incViewportMovement(&io, camera);
 
     // Then update sub-stuff
     switch(incEditMode) {
         case EditMode.ModelEdit:
-            incViewportModelUpdate(io, camera);
+            incViewportModelUpdate(&io, camera);
             break;
         case EditMode.VertexEdit:
-            incViewportVertexUpdate(io, camera);
+            incViewportVertexUpdate(&io, camera);
             break;
         case EditMode.AnimEdit:
-            incViewportAnimUpdate(io, camera);
+            incViewportAnimUpdate(&io, camera);
             break;
         case EditMode.ModelTest:
-            incViewportTestUpdate(io, camera);
+            incViewportTestUpdate(&io, camera);
             break;
         default: assert(0);
     }
@@ -346,7 +378,8 @@ DraggingOnHandle incGetDragOnHandleStatus(int btn, string name) {
 
 void incViewportTransformHandle() {
     Camera camera = inGetCamera();
-    auto io = igGetIO();
+    ImGuiIO io;
+    incMirrorIO(&io);
     Parameter param = incArmedParameter();
     if (incSelectedNodes.length == 0)
         return;
@@ -364,6 +397,14 @@ void incViewportTransformHandle() {
                             max(totalBounds.z, obounds.z), max(totalBounds.w, obounds.w));
     }
     auto bounds = vec4(WorldToViewport(totalBounds.x, totalBounds.y), WorldToViewport(totalBounds.z, totalBounds.w));
+
+    // swap if bounds.x > bounds.z
+    if (incShouldMirrorViewport) {
+        bounds = vec4(
+            incGetMirrorX2(bounds.z), bounds.y,
+            incGetMirrorX2(bounds.x), bounds.w
+        );
+    }
 
     Parameter armedParam = incArmedParameter();
 
@@ -849,11 +890,84 @@ private {
         }
 
         // HANDLE ZOOM
+        string zoomMode = incGetCurrentViewportZoomMode();
+        if (zoomMode == "legacy-zooming")
+            incViewportZoomLegacy(io, camera, uiScale);
+        else if (zoomMode == "normal")
+            incViewportZoomNew(io, camera, uiScale);
+    }
+
+    void incViewportZoomNew(ImGuiIO* io, Camera camera, float uiScale) {
+        // This value changes the zoom speed
+        float speed = incGetViewportZoomSpeed();
         if (io.MouseWheel != 0) {
-            incViewportZoom += (io.MouseWheel/50)*incViewportZoom*uiScale;
+            float prevZoom = incViewportZoom;
+            incViewportZoom += (io.MouseWheel*speed/50)*incViewportZoom*uiScale;
+            incViewportZoom = clamp(incViewportZoom, incVIEWPORT_ZOOM_MIN, incVIEWPORT_ZOOM_MAX);
+            camera.scale = vec2(incViewportZoom);
+            incViewportTargetZoom = incViewportZoom;
+
+            // Get canvas size and xy
+            int uiWidth, uiHeight;
+            inGetViewport(uiWidth, uiHeight);
+            ImVec2 panelPos;
+            igGetItemRectMin(&panelPos);
+
+            // Taking the canvas as the center point, calculate the relative position
+            vec2 relatedMousePos = vec2(
+              io.MousePos.x - (panelPos.x + cast(float) uiWidth / 2),
+              io.MousePos.y - (panelPos.y + cast(float) uiHeight / 2)
+            );
+
+            // Calculate the relative value to the center point before and after scaling
+            vec2 afterScaleVec = relatedMousePos / incViewportZoom * uiScale;
+            vec2 beforeScaleVec = relatedMousePos / prevZoom * uiScale;
+            camera.position -= beforeScaleVec - afterScaleVec;
+            incViewportTargetPosition = camera.position;
+        }
+    }
+
+    void incViewportZoomLegacy(ImGuiIO* io, Camera camera, float uiScale) {
+        float speed = incGetViewportZoomSpeed();
+        if (io.MouseWheel != 0) {
+            incViewportZoom += (io.MouseWheel/50*speed)*incViewportZoom*uiScale;
             incViewportZoom = clamp(incViewportZoom, incVIEWPORT_ZOOM_MIN, incVIEWPORT_ZOOM_MAX);
             camera.scale = vec2(incViewportZoom);
             incViewportTargetZoom = incViewportZoom;
         }
     }
+}
+
+string[] incGetViewportZoomModes() {
+    return ["normal", "legacy-zooming"];
+}
+
+string incGetCurrentViewportZoomMode() {
+    if (incSettingsCanGet("ViewportZoomMode"))
+      return incSettingsGet!string("ViewportZoomMode");
+    else
+      return "normal";
+}
+
+bool incSetCurrentViewportZoomMode(string select) {
+    string[] viewportZoomModes = incGetViewportZoomModes();
+
+    // Verify zoom mode conifg
+    if (viewportZoomModes.canFind(select) == -1)
+      return false;
+
+    incSettingsSet("ViewportZoomMode", select);
+    return true;
+}
+
+float incGetViewportZoomSpeed() {
+    if (incSettingsCanGet("ViewportZoomSpeed"))
+      return incSettingsGet!float("ViewportZoomSpeed");
+    else
+      return 5.0;
+}
+
+bool incSetViewportZoomSpeed(float speed) {
+    incSettingsSet("ViewportZoomSpeed", speed);
+    return true;
 }

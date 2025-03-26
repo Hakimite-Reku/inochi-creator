@@ -10,6 +10,8 @@ public import creator.io.kra;
 public import creator.io.inpexport;
 public import creator.io.videoexport;
 public import creator.io.imageexport;
+import creator.widgets: DialogButtons;
+import creator.widgets.dialog;
 
 import tinyfiledialogs;
 public import tinyfiledialogs : TFD_Filter;
@@ -73,6 +75,13 @@ private {
     }
 }
 
+string incToDString(c_str cstr1) {
+    if (cstr1 !is null) {
+        return cast(string) cstr1.fromStringz;
+    }
+    return null;
+}
+
 string incShowImportDialog(const(TFD_Filter)[] filters, string title, bool multiple = false) {
     version (linux) {
         try {
@@ -81,24 +90,16 @@ string incShowImportDialog(const(TFD_Filter)[] filters, string title, bool multi
             op.multiple = multiple;
             auto promise = dpFileChooserOpenFile(getWindowHandle(), title, op);
             promise.await();
-            return promise.uriFromPromise().decode;
+            return promise.uriFromPromise().decode.dup;
         } catch (Throwable ex) {
 
             // FALLBACK: If xdg-desktop-portal is not available then try tinyfiledialogs.
             c_str filename = tinyfd_openFileDialog(title.toStringz, "", filters, multiple);
-            if (filename !is null) {
-                string file = cast(string) filename.fromStringz;
-                return file;
-            }
-            return null;
+            return incToDString(filename).dup;
         }
     } else {
         c_str filename = tinyfd_openFileDialog(title.toStringz, "", filters, multiple);
-        if (filename !is null) {
-            string file = cast(string) filename.fromStringz;
-            return file;
-        }
-        return null;
+        return incToDString(filename).dup;
     }
 }
 
@@ -109,20 +110,16 @@ string incShowOpenFolderDialog(string title = "Open...") {
             op.directory = true;
             auto promise = dpFileChooserOpenFile(getWindowHandle(), title, op);
             promise.await();
-            return promise.uriFromPromise().decode;
+            return promise.uriFromPromise().decode.dup;
         } catch (Throwable _) {
 
             // FALLBACK: If xdg-desktop-portal is not available then try tinyfiledialogs.
             c_str filename = tinyfd_selectFolderDialog(title.toStringz, null);
-            if (filename !is null)
-                return cast(string) filename.fromStringz;
-            return null;
+            return incToDString(filename).dup;
         }
     } else {
         c_str filename = tinyfd_selectFolderDialog(title.toStringz, null);
-        if (filename !is null)
-            return cast(string) filename.fromStringz;
-        return null;
+        return incToDString(filename).dup;
     }
 }
 
@@ -133,24 +130,16 @@ string incShowOpenDialog(const(TFD_Filter)[] filters, string title = "Open...") 
             op.filters = tfdToFileFilter(filters);
             auto promise = dpFileChooserOpenFile(getWindowHandle(), title, op);
             promise.await();
-            return promise.uriFromPromise().decode;
+            return promise.uriFromPromise().decode.dup;
         } catch (Throwable ex) {
 
             // FALLBACK: If xdg-desktop-portal is not available then try tinyfiledialogs.
             c_str filename = tinyfd_openFileDialog(title.toStringz, "", filters, false);
-            if (filename !is null) {
-                string file = cast(string) filename.fromStringz;
-                return file;
-            }
-            return null;
+            return incToDString(filename).dup;
         }
     } else {
         c_str filename = tinyfd_openFileDialog(title.toStringz, "", filters, false);
-        if (filename !is null) {
-            string file = cast(string) filename.fromStringz;
-            return file;
-        }
-        return null;
+        return incToDString(filename).dup;
     }
 }
 
@@ -161,24 +150,16 @@ string incShowSaveDialog(const(TFD_Filter)[] filters, string fname, string title
             op.filters = tfdToFileFilter(filters);
             auto promise = dpFileChooserSaveFile(getWindowHandle(), title, op);
             promise.await();
-            return promise.uriFromPromise().decode;
+            return promise.uriFromPromise().decode.dup;
         } catch (Throwable ex) {
 
             // FALLBACK: If xdg-desktop-portal is not available then try tinyfiledialogs.
             c_str filename = tinyfd_saveFileDialog(title.toStringz, fname.toStringz, filters);
-            if (filename !is null) {
-                string file = cast(string) filename.fromStringz;
-                return file;
-            }
-            return null;
+            return incToDString(filename).dup;
         }
     } else {
         c_str filename = tinyfd_saveFileDialog(title.toStringz, fname.toStringz, filters);
-        if (filename !is null) {
-            string file = cast(string) filename.fromStringz;
-            return file;
-        }
-        return null;
+        return incToDString(filename).dup;
     }
 }
 
@@ -219,5 +200,77 @@ void incCreatePartsFromFiles(string[] files) {
                 break;
             default: throw new Exception("Invalid file type "~fname.extension.toLower);
         }
+    }
+}
+
+string incGetKeepLayerFolder() {
+    if (incSettingsCanGet("KeepLayerFolder"))
+        return incSettingsGet!string("KeepLayerFolder");
+    else
+        // also see incSettingsLoad()
+        // Preserve the original behavior for existing users
+        return "NotPreserve";
+}
+
+bool incSetKeepLayerFolder(string select) {
+    incSettingsSet("KeepLayerFolder", select);
+    return true;
+}
+
+enum AskKeepLayerFolder {
+    Preserve, NotPreserve, Cancel
+}
+
+/**
+    Function for importing pop-up dialog
+*/
+bool incKeepStructDialog(ImportKeepHandler handler) {
+    if (incGetKeepLayerFolder() == "Preserve") {
+        handler.load(AskKeepLayerFolder.Preserve);
+    } else if (incGetKeepLayerFolder() == "NotPreserve") {
+        handler.load(AskKeepLayerFolder.NotPreserve);
+    } else {
+        handler.register();
+        handler.show();
+    }
+
+    return true;
+}
+
+class ImportKeepHandler : DialogHandler {
+    const(char)* INC_KEEP_STRUCT_DIALOG_NAME = "ImportKeepFolderStructPopup";
+
+    this () {
+        super(INC_KEEP_STRUCT_DIALOG_NAME);
+    }
+
+    override
+    bool onClickCancel() {
+        return this.load(AskKeepLayerFolder.Cancel);
+    }
+
+    override
+    bool onClickYes() {
+        return this.load(AskKeepLayerFolder.Preserve);
+    }
+
+    override
+    bool onClickNo() {
+        return this.load(AskKeepLayerFolder.NotPreserve);
+    }
+
+    bool load(AskKeepLayerFolder select) {
+        // override this
+        return false;
+    }
+
+    void show() {
+        incDialog(
+            INC_KEEP_STRUCT_DIALOG_NAME,
+            __("File import"),
+            _("Would you like to keep the folder structure of the imported file?\n\nYou can change the default behaviour in the settings."),
+            DialogLevel.Warning,
+            DialogButtons.Yes | DialogButtons.No | DialogButtons.Cancel
+        );
     }
 }

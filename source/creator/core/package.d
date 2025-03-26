@@ -16,13 +16,13 @@ import creator.widgets.dialog;
 import creator.widgets.modal;
 import creator.backend.gl;
 import creator.io.autosave;
+import creator.io.save;
 
 import std.exception;
 
 import bindbc.sdl;
 import bindbc.opengl;
 import inochi2d;
-import tinyfiledialogs;
 import std.string;
 import std.stdio;
 import std.conv;
@@ -39,7 +39,18 @@ public import creator.core.dpi;
 import i18n;
 
 version(OSX) {
-    enum const(char)*[] SDL_VERSIONS_MACOS = ["libSDL2.dylib", "libSDL2-2.0.dylib", "libSDL2-2.0.0.dylib"];
+    enum const(char)*[] SDL_VERSIONS = ["libSDL2.dylib", "libSDL2-2.0.dylib", "libSDL2-2.0.0.dylib"];
+} else version(Windows) {
+    enum const(char)*[] SDL_VERSIONS = ["SDL2.dll"];
+} else {
+    enum const(char)*[] SDL_VERSIONS = [
+        "libSDL2-2.0.so.0",
+        "libSDL2-2.0.so",
+        "libSDL2.so",
+        "/usr/local/lib/libSDL2-2.0.so.0",
+        "/usr/local/lib/libSDL2-2.0.so",
+        "/usr/local/lib/libSDL2.so",
+    ];
 }
 
 version(linux) {
@@ -184,6 +195,7 @@ ImGuiID incGetViewportDockSpace() {
 */
 void incOpenWindow() {
     import std.process : environment;
+    import std.string : fromStringz;
 
     switch(environment.get("XDG_SESSION_DESKTOP")) {
         case "i3":
@@ -217,16 +229,15 @@ void incOpenWindow() {
     }
 
 
-    // Special case for macOS
-    version(OSX) {
-        foreach(ver; SDL_VERSIONS_MACOS) {
-            auto sdlSupport = loadSDL(ver);
+    // Load SDL2 in the order required for Steam
+    foreach(ver; SDL_VERSIONS) {
+        auto sdlSupport = loadSDL(ver);
 
-            if (sdlSupport != SDLSupport.noLibrary && 
-                sdlSupport != SDLSupport.badLibrary) break;
-        }
+        if (sdlSupport != SDLSupport.noLibrary && 
+            sdlSupport != SDLSupport.badLibrary) break;
     }
-    else auto sdlSupport = loadSDL();
+
+    // Whomp whomp
     enforce(sdlSupport != SDLSupport.noLibrary, "SDL2 library not found!");
     enforce(sdlSupport != SDLSupport.badLibrary, "Bad SDL2 library found!");
     
@@ -238,8 +249,13 @@ void incOpenWindow() {
         version(Windows) enforce(imSupport != ImGuiSupport.badLibrary, "Bad cimgui library found!");
     }
 
-    SDL_Init(SDL_INIT_EVERYTHING);
     
+    int code = SDL_Init(SDL_INIT_EVERYTHING & ~SDL_INIT_AUDIO);
+    enforce(
+        code == 0,
+        "Error initializing SDL2! %s".format(SDL_GetError().fromStringz)
+    );
+
     version(Windows) {
         incSetWin32DPIAwareness();
     }
@@ -264,6 +280,7 @@ void incOpenWindow() {
 
     // Don't make KDE freak out when Inochi Creator opens
     if (!incSettingsGet!bool("DisableCompositor")) SDL_SetHint(SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR, "0");
+    SDL_SetHint(SDL_HINT_IME_SHOW_UI, "1");
 
     version(InBranding) {
         debug string WIN_TITLE = "Inochi Creator "~_("(Debug Mode)");
@@ -600,9 +617,9 @@ void incBeginLoopNoEv() {
 
     version(linux) dpUpdate();
 
-
-
-    if (files.length > 0) {
+    // HACK: prevents the app freezing when files are drag and drop on the nagscreen.
+    // freeze is caused by `igSetDragDropPayload()`, so we check if the modal is open.
+    if (files.length > 0 && !incModalIsOpen()) {
         if (igBeginDragDropSource(ImGuiDragDropFlags.SourceExtern)) {
             igSetDragDropPayload("__PARTS_DROP", &files, files.sizeof);
             igBeginTooltip();
@@ -613,6 +630,9 @@ void incBeginLoopNoEv() {
             igEndTooltip();
             igEndDragDropSource();
         }
+    } else if (incModalIsOpen()) {
+        // clean up the files array
+        files.length = 0;
     }
 
     // Add docking space
@@ -625,10 +645,16 @@ void incBeginLoopNoEv() {
     // HACK: ImGui Crashes if a popup is rendered on the first frame, let's avoid that.
     if (firstFrame) firstFrame = false;
     else {
-        incModalRender();
-        incRenderDialogs();
+        // imgui can not igOpenPopup two popups at the same time, that causes a freeze
+        // so we sperate the popups rendering
+        if (incModalIsOpen())
+            incModalRender();
+        else
+            incRenderDialogs();
     }
     incStatusUpdate();
+
+    incHandleDialogHandlers();
 }
 
 void incSetDefaultLayout() {
@@ -672,7 +698,7 @@ void incBeginLoop() {
     while(SDL_PollEvent(&event)) {
         switch(event.type) {
             case SDL_QUIT:
-                incExit();
+                incExitSaveAsk();
                 break;
 
             case SDL_DROPFILE:
@@ -682,11 +708,6 @@ void incBeginLoop() {
             
             default: 
                 incGLBackendProcessEvent(&event);
-                if (
-                    event.type == SDL_WINDOWEVENT && 
-                    event.window.event == SDL_WINDOWEVENT_CLOSE && 
-                    event.window.windowID == SDL_GetWindowID(window)
-                ) incExit();
                 break;
         }
     }
@@ -789,6 +810,16 @@ void incExit() {
     incSettingsSet("WinH", h);
     incSettingsSet!bool("WinMax", (flags & SDL_WINDOW_MAXIMIZED) > 0);
     incReleaseLockfile();
+}
+
+/**
+    check project has changes
+*/
+bool incIsProjectModified() {
+    // TODO: we need more detailed check, maybe history action stack or tracking all changes
+    // currently just assume user history action stack should record all changes
+    // if not record, it is action stack bug
+    return !incIsActionStackEmpty();
 }
 
 /**

@@ -6,6 +6,7 @@ import std.algorithm.sorting;
 import std.algorithm.mutation;
 import i18n;
 import std.exception;
+import std.file : rename;
 
 private {
     vec2 mapUVCoord(vec2 value, vec2 min, vec2 max) {
@@ -333,7 +334,7 @@ void incINPExportFinalizePacking(ref Puppet source, Atlas[] atlasses) {
         foreach(Atlas atlas; atlasses) {
             
             // Look for our part in the atlas
-            if (part.uuid in atlas.mappings) {
+            if (part.textures[0].getRuntimeUUID() in atlas.mappings) {
 
                 // This will remap the UV coordinates of the part
                 // To 0..1 range if need be.
@@ -351,7 +352,7 @@ void incINPExportFinalizePacking(ref Puppet source, Atlas[] atlasses) {
 
                 // Now we need to scale those UV coordinates to fit within the mapping
                 float atlasSize = cast(float)atlas.textures[0].width;
-                rect mapping = atlas.mappings[part.uuid];
+                rect mapping = atlas.mappings[part.textures[0].getRuntimeUUID()];
                 foreach(ref uv; uvs) {
                     uv.x = (mapping.x+(uv.x*mapping.width))/atlasSize;
                     uv.y = (mapping.y+(uv.y*mapping.height))/atlasSize;
@@ -388,5 +389,8 @@ void incINPExport(Puppet puppet, IncINPExportSettings settings, string file) {
     incINPExportFlatten(source);
     incINPExportFinalizePacking(source, atlasses);
     
-    inWriteINPPuppet(source, file);
+    // using swp prevent file corruption
+    string swapPath = file ~ ".export.swp";
+    inWriteINPPuppet(source, swapPath);
+    rename(swapPath, file);
 }
